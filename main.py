@@ -5,6 +5,7 @@ import requests
 from uuid import uuid4
 from user_agent import generate_user_agent
 
+# ====================== CRUNCHYROLL CHECK FUNCTION ======================
 def crunchyroll(username, password):
     url = "https://beta-api.crunchyroll.com/auth/v1/token"
     
@@ -32,21 +33,17 @@ def crunchyroll(username, password):
         response = requests.post(url, headers=headers, data=data, timeout=30)
         response_text = response.text
         
-        if "error code" in response_text:
-            return None
-        if response.status_code == 403:
+        if "error code" in response_text or response.status_code == 403:
             return None
         
         if ("invalid_grant" in response_text or 
             "auth.obtain_access_token.invalid_credentials" in response_text or
-            response.status_code == 401 or
-            response.status_code == 400 or
+            response.status_code in (401, 400) or
             "auth.obtain_access_token.too_many_requests" in response_text):
             return None
         
-        if ('{"access_token":"' in response_text and 
-            '"profile_id":"' in response_text):
-            return response.json() 
+        if '{"access_token":"' in response_text and '"profile_id":"' in response_text:
+            return response.json()
         
         return None
         
@@ -57,16 +54,18 @@ def crunchyroll(username, password):
 # ====================== TELEGRAM BOT ======================
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("Please set TELEGRAM_BOT_TOKEN environment variable")
+    raise ValueError("Please set TELEGRAM_BOT_TOKEN environment variable on Railway")
 
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "👋 Welcome to Crunchyroll Checker Bot!\n\n"
-                          "Usage: /crunchy <email> <password>\n"
-                          "Example: /crunchy user@example.com mypass123\n\n"
-                          "⚠️ Only use in private chat!")
+    bot.reply_to(message, 
+        "👋 Welcome to Crunchyroll Checker Bot!\n\n"
+        "Usage: /crunchy <email> <password>\n"
+        "Example: /crunchy user@example.com mypass123\n\n"
+        "⚠️ Only use in private chat with yourself for safety."
+    )
 
 @bot.message_handler(commands=['crunchy'])
 def handle_crunchy(message):
@@ -81,20 +80,46 @@ def handle_crunchy(message):
     username = parts[1]
     password = parts[2]
     
-    bot.reply_to(message, "🔄 Checking credentials... (this may take a few seconds)")
+    # Show processing message
+    processing_msg = bot.reply_to(message, "🔄 Checking Crunchyroll credentials... Please wait.")
     
+    # Perform the check
     result = crunchyroll(username, password)
     
     if result:
-        success_msg = "✅ **Success!** Login successful.\n\n" + json.dumps(result, indent=2)
-        bot.send_message(chat_id, success_msg, parse_mode='Markdown')
+        # Fixed: Send success message without parse_mode to avoid Markdown parsing error
+        success_text = (
+            "✅ **Login Successful!**\n\n"
+            f"Email: `{username}`\n\n"
+            "Full Response:\n"
+            f"```{json.dumps(result, indent=2)}```"
+        )
+        bot.send_message(
+            chat_id, 
+            success_text,
+            parse_mode='MarkdownV2'   # Safer Markdown version
+        )
     else:
-        bot.reply_to(message, "❌ Login failed (invalid credentials, rate limit, or error).")
+        bot.send_message(
+            chat_id, 
+            "❌ Login failed.\n\n"
+            "Possible reasons:\n"
+            "• Wrong email or password\n"
+            "• Account requires CAPTCHA / 2FA\n"
+            "• Rate limit (too many attempts)\n"
+            "• Temporary Crunchyroll server issue"
+        )
+    
+    # Optional: Delete the original command message (hides password)
+    try:
+        bot.delete_message(chat_id, message.message_id)
+    except:
+        pass  # Ignore if we don't have permission to delete
 
 @bot.message_handler(func=lambda m: True)
-def default(message):
+def default_handler(message):
     if not message.text.startswith('/'):
-        bot.reply_to(message, "Send /crunchy <email> <password>")
+        bot.reply_to(message, "Send /crunchy <email> <password> to check login.")
 
 if __name__ == "__main__":
     print("🚀 Crunchyroll Telegram Bot is running...")
