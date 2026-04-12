@@ -56,15 +56,19 @@ def crunchyroll_check(username: str, password: str):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🎉 **Crunchyroll Combo Checker Bot**\n\n"
-        "Send single combo → `email:password`\n"
-        "Or upload .txt file with combos",
+        "🎉 **Crunchyroll Checker Bot**\n\n"
+        "Send: `email:password`\n"
+        "Or upload .txt combo list",
         parse_mode=ParseMode.MARKDOWN
     )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip() if update.message.text else ""
+    
+    # Skip if it's a command
+    if text.startswith('/'):
+        return
     
     if ":" in text and "@" in text:
         try:
@@ -73,7 +77,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = crunchyroll_check(email, password)
             await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
         except:
-            await update.message.reply_text("❌ Wrong format! Use `email:password`")
+            await update.message.reply_text("❌ Use format: `email:password`")
     else:
         await update.message.reply_text("Send `email:password` or upload .txt file")
 
@@ -97,7 +101,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ No valid combos found.")
             return
 
-        await update.message.reply_text(f"✅ Found {len(combos)} combos. Starting...")
+        await update.message.reply_text(f"✅ Found {len(combos)} combos. Starting check...")
 
         hits = []
         for i, combo in enumerate(combos, 1):
@@ -113,11 +117,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if hits:
             await update.message.reply_text(
-                f"🎯 **CHECK FINISHED**\n\nTotal: {len(combos)}\nHits: {len(hits)}\n\n**Hits:**\n" + "\n".join(hits),
+                f"🎯 **CHECK FINISHED**\n\n"
+                f"Total: {len(combos)}\n"
+                f"Hits: {len(hits)}\n\n"
+                f"**Hits:**\n" + "\n".join(hits),
                 parse_mode=ParseMode.MARKDOWN
             )
         else:
-            await update.message.reply_text("✅ Finished. No hits found.")
+            await update.message.reply_text("✅ Check completed. No hits found.")
 
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)[:150]}")
@@ -131,22 +138,12 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
-    # Clean Handlers (No backslash, no corruption)
+    # Clean Handlers - No problematic & \~ operator
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler((filters.TEXT & \~filters.COMMAND), handle_message))
+    app.add_handler(MessageHandler(filters.TEXT, handle_message))   # We filter commands inside handler
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
     print("🚀 Crunchyroll Checker Bot Started Successfully!")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()    text_filter = filters.TEXT & \~filters.COMMAND
-    app.add_handler(MessageHandler(text_filter, handle_message))
-    
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-
-    print("🚀 Bot is running...")
     app.run_polling()
 
 
