@@ -114,4 +114,37 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if hits:
             hit_list = "\n".join(hits)
-            await
+            await update.message.reply_text(
+                f"🎯 **CHECK FINISHED**\n\n"
+                f"Total Checked: {len(combos)}\n"
+                f"Hits Found: {len(hits)}\n\n"
+                f"**Hits:**\n{hit_list}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await update.message.reply_text("✅ Check completed.\nNo hits found.")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error processing file:\n{str(e)[:200]}")
+
+
+# ================== MAIN ==================
+def main():
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not TOKEN:
+        print("❌ TELEGRAM_BOT_TOKEN environment variable is not set!")
+        return
+
+    app = Application.builder().token(TOKEN).build()
+
+    # Add handlers (clean, no backslashes)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & \~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+    print("🚀 Crunchyroll Checker Bot is running...")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
